@@ -137,7 +137,7 @@ td a{color:inherit}
 
 <script>
 /* ===== Settings ===== */
-const CLIENT_ID = '212551288343-6k7741debgbsci0ca7cu965qr235ivd3.apps.googleusercontent.com';
+const CLIENT_ID = 'PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com';
 const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 const APPS_QUERY = 'newer_than:6m -category:promotions -from:(indeedapply@indeed.com OR nurture.icims.com OR openai.com OR gofordesi.com OR jobalerts-noreply@linkedin.com OR glassdoor.com) (subject:(applying OR "your application" OR "application received" OR "application status" OR "received your application" OR "interest in" OR "interested in" OR interview OR "pre-screen" OR assessment OR "offer letter" OR requisition OR "position closed" OR "position filled") OR from:(myworkday.com OR ashbyhq.com OR smartrecruiters.com OR greenhouse.io OR lever.co OR workablemail.com OR successfactors.com OR icims.com OR clearcompany.com OR silkroad.com OR applicantemails.com OR talent@ibm.com))';
 const LEADS_QUERY = 'newer_than:30d -from:me (from:(jobalerts-noreply@linkedin.com OR jobs-noreply@linkedin.com OR alert@indeed.com OR jobalert@indeed.com OR noreply@glassdoor.com OR ziprecruiter.com OR dice.com OR wellfound.com OR joinhandshake.com) OR subject:("we\'re hiring" OR "now hiring" OR "is hiring" OR "open position" OR "open role" OR "job opportunity" OR "paid project")) -subject:("employee reviews" OR applying OR "your application" OR "looking for a new job")';
@@ -160,11 +160,20 @@ const daysAgo = (n) => ymd(Date.now() - n * 864e5);
 const nice = (s) => new Date(s + 'T12:00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
 
 /* ===== Gmail ===== */
-async function gmail(path, params = {}) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function gmail(path, params = {}, tries = 0) {
   const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/' + path);
   for (const [k, v] of Object.entries(params)) [].concat(v).forEach((x) => url.searchParams.append(k, x));
   const r = await fetch(url, {headers: {Authorization: 'Bearer ' + token}});
   if (r.status === 401) { token = null; throw new Error('Your Google sign-in expired. Tap Refresh to sign in again.'); }
+  if ((r.status === 429 || r.status === 403 || r.status >= 500) && tries < 6) {
+    const body = r.status === 403 ? await r.text() : '';
+    if (r.status !== 403 || /quota|rate/i.test(body)) { // Gmail rate limit: wait and retry
+      await sleep(Math.min(32000, 1000 * 2 ** tries) + Math.random() * 500);
+      return gmail(path, params, tries + 1);
+    }
+    throw new Error(`Gmail returned 403: ${body.slice(0, 200)}`);
+  }
   if (!r.ok) throw new Error(`Gmail returned ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return r.json();
 }
@@ -195,9 +204,11 @@ async function loadThreads(q, max, cacheKey) {
         msgs: (th.messages || []).map((m) => { const f = parseFrom(header(m, 'From')); return {ms: Number(m.internalDate), from: f.email, name: f.name, to: parseFrom(header(m, 'To')).email, subject: decode(header(m, 'Subject')), snippet: decode(m.snippet)}; }),
       };
       $('sync').textContent = `Reading emails… ${++done}`;
+      if (done % 20 === 0) store.set(cacheKey, cache); // save progress so a retry picks up where it stopped
+      await sleep(120); // stay under Gmail's per-user rate limit
     }
   };
-  await Promise.all(Array.from({length: 6}, work));
+  try { await Promise.all(Array.from({length: 3}, work)); } finally { store.set(cacheKey, cache); }
   const keep = {}; list.forEach((t) => { if (cache[t.id]) keep[t.id] = cache[t.id]; });
   store.set(cacheKey, keep);
   return list.map((t) => ({id: t.id, ...keep[t.id]})).filter((t) => t.msgs && t.msgs.length);
