@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Job Tracker</title>
+<meta name="theme-color" content="#1C2A4A">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+:root{
+  --bg:#EEF1F6;--card:#FFFFFF;--ink:#1C2A4A;--muted:#5B6B85;--line:#D7DDE8;
+  --gold:#F2B84B;--bad:#C2413A;--ok:#1F8A5B;--warn:#B7791F;--wait:#5B6B85;
+  --head:"Bricolage Grotesque",system-ui,sans-serif;--body:"Atkinson Hyperlegible",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{--bg:#10182B;--card:#18233A;--ink:#E6EBF5;--muted:#9AA8C2;--line:#2A3854;--bad:#E8746D;--ok:#4CC28D;--warn:#E3AE52;--wait:#9AA8C2;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px 120px}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+h1{font-family:var(--head);font-weight:700;font-size:clamp(26px,5vw,38px);letter-spacing:-.02em;margin:0;flex:1}
+.btn{font:inherit;font-weight:700;border:1.5px solid var(--ink);background:var(--ink);color:var(--bg);border-radius:10px;padding:8px 14px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn:focus-visible,.chip:focus-visible,input:focus-visible,.stamp:focus-visible,.tab:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.sync{color:var(--muted);font-size:13px;width:100%}
+.signin{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px;max-width:520px}
+.signin h2{font-family:var(--head);margin:0 0 8px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.tab{font:inherit;background:none;border:0;border-bottom:3px solid transparent;padding:8px 12px;color:var(--muted);cursor:pointer;font-weight:700}
+.tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--gold)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
+.chip{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:5px 12px;cursor:pointer}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.range{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+input[type=date],input[type=search]{font:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+input[type=search]{margin-left:auto;min-width:180px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.tile[aria-pressed=true]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.tile .l{font-size:13px;color:var(--muted)}
+.tile .n{font-family:var(--head);font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.tile.bad .n{color:var(--bad)}.tile.ok .n{color:var(--ok)}.tile.warn .n{color:var(--warn)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.scroll{max-height:62vh;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{position:sticky;top:0;background:var(--card);text-align:left;color:var(--muted);font-weight:700;font-size:13px;padding:10px 12px;border-bottom:1px solid var(--line)}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+td a{color:inherit}
+.st{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;border:1.5px solid currentColor;white-space:nowrap}
+.st-Rejected{color:var(--bad)}.st-Offer{color:var(--ok)}.st-Interview,.st-Assessment{color:var(--warn)}.st-Applied{color:var(--wait)}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.err{background:color-mix(in srgb,var(--bad) 12%,var(--card));border:1px solid var(--bad);border-radius:12px;padding:10px 14px;margin-bottom:14px}
+/* Today postmark */
+.stamp{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(20px + env(safe-area-inset-bottom));width:104px;height:104px;border-radius:50%;background:var(--ink);color:var(--bg);border:0;cursor:pointer;display:grid;place-items:center;font:inherit;box-shadow:0 6px 20px rgba(28,42,74,.35);z-index:20}
+.stamp::before{content:"";position:absolute;inset:7px;border:2px dashed var(--gold);border-radius:50%}
+.stamp .c{font-family:var(--head);font-size:36px;font-weight:700;line-height:1;color:var(--gold)}
+.stamp .t{font-size:11px;line-height:1.2;text-align:center;margin-top:2px}
+.side{position:fixed;top:0;right:0;height:100%;width:min(380px,92vw);background:var(--card);border-left:1px solid var(--line);z-index:30;padding:calc(20px + env(safe-area-inset-top)) 18px 20px;overflow:auto;transform:translateX(100%);transition:transform .25s ease}
+.side.open{transform:none;box-shadow:-10px 0 30px rgba(0,0,0,.2)}
+.side h2{font-family:var(--head);margin:0 0 4px;font-size:22px}
+.side .x{position:absolute;top:calc(14px + env(safe-area-inset-top));right:14px}
+.side ul{list-style:none;padding:0;margin:16px 0 0}
+.side li{border-top:1px solid var(--line);padding:10px 0}
+.side li b{display:block}
+.muted{color:var(--muted);font-size:13px}
+@media (max-width:640px){.hide-sm{display:none}input[type=search]{margin-left:0;width:100%}}
+@media (prefers-reduced-motion:reduce){.side{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Job Tracker</h1>
+    <button class="btn ghost" id="refresh" hidden>Refresh</button>
+    <button class="btn ghost" id="signout" hidden>Sign out</button>
+    <div class="sync" id="sync"></div>
+  </header>
+
+  <div id="error" class="err" hidden></div>
+
+  <section class="signin" id="signin">
+    <h2>Connect your Gmail</h2>
+    <p class="muted">The app reads your job emails (read-only) to track applications and collect job leads. Nothing leaves your browser.</p>
+    <button class="btn" id="connect">Sign in with Google</button>
+  </section>
+
+  <main id="app" hidden>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="apps" aria-selected="true">Applications</button>
+      <button class="tab" role="tab" data-tab="leads" aria-selected="false">Job leads</button>
+    </div>
+
+    <div class="filters" aria-label="Date filter">
+      <button class="chip" data-preset="today" aria-pressed="false">Today</button>
+      <button class="chip" data-preset="7" aria-pressed="false">Last 7 days</button>
+      <button class="chip" data-preset="30" aria-pressed="false">Last 30 days</button>
+      <button class="chip" data-preset="all" aria-pressed="true">All</button>
+      <span class="range"><label for="from">From</label><input type="date" id="from"><label for="to">to</label><input type="date" id="to"></span>
+      <input type="search" id="q" placeholder="Search company or role" aria-label="Search">
+    </div>
+
+    <section id="apps">
+      <div class="tiles" id="tiles"></div>
+      <div class="panel"><div class="scroll">
+        <table>
+          <thead><tr><th>Company</th><th>Role</th><th>Status</th><th class="hide-sm">Applied</th><th>Last update</th><th>Email</th></tr></thead>
+          <tbody id="appRows"></tbody>
+        </table>
+      </div></div>
+    </section>
+
+    <section id="leads" hidden>
+      <div class="panel"><div class="scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Company</th><th>Role</th><th class="hide-sm">Source</th><th>Email</th></tr></thead>
+          <tbody id="leadRows"></tbody>
+        </table>
+      </div></div>
+    </section>
+  </main>
+</div>
+
+<button class="stamp" id="stamp" hidden aria-controls="side" aria-expanded="false">
+  <span><span class="c" id="todayCount">0</span><span class="t">applied<br>today</span></span>
+</button>
+
+<aside class="side" id="side" aria-label="Today's applications">
+  <button class="btn ghost x" id="closeSide">Close</button>
+  <h2>Today</h2>
+  <div class="muted" id="todayDate"></div>
+  <ul id="todayList"></ul>
+</aside>
+
+<script>
+/* ===== Settings ===== */
+const CLIENT_ID = 'PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com';
+const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+const APPS_QUERY = 'newer_than:6m -category:promotions -from:(indeedapply@indeed.com OR nurture.icims.com OR openai.com OR gofordesi.com OR jobalerts-noreply@linkedin.com OR glassdoor.com) (subject:(applying OR "your application" OR "application received" OR "application status" OR "received your application" OR "interest in" OR "interested in" OR interview OR "pre-screen" OR assessment OR "offer letter" OR requisition OR "position closed" OR "position filled") OR from:(myworkday.com OR ashbyhq.com OR smartrecruiters.com OR greenhouse.io OR lever.co OR workablemail.com OR successfactors.com OR icims.com OR clearcompany.com OR silkroad.com OR applicantemails.com OR talent@ibm.com))';
+const LEADS_QUERY = 'newer_than:30d -from:me (from:(jobalerts-noreply@linkedin.com OR jobs-noreply@linkedin.com OR alert@indeed.com OR jobalert@indeed.com OR noreply@glassdoor.com OR ziprecruiter.com OR dice.com OR wellfound.com OR joinhandshake.com) OR subject:("we\'re hiring" OR "now hiring" OR "is hiring" OR "open position" OR "open role" OR "job opportunity" OR "paid project")) -subject:("employee reviews" OR applying OR "your application" OR "looking for a new job")';
+const MAX_APPS = 300, MAX_LEADS = 150;
+
+/* ===== State ===== */
+let token = null, tokenClient = null;
+let applications = [], leads = [];
+const ui = {tab: 'apps', from: '', to: '', status: '', q: ''};
+const $ = (id) => document.getElementById(id);
+const store = {
+  get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+/* ===== Dates (local time) ===== */
+const ymd = (ms) => { const d = new Date(Number(ms)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const today = () => ymd(Date.now());
+const daysAgo = (n) => ymd(Date.now() - n * 864e5);
+const nice = (s) => new Date(s + 'T12:00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+
+/* ===== Gmail ===== */
+async function gmail(path, params = {}) {
+  const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/' + path);
+  for (const [k, v] of Object.entries(params)) [].concat(v).forEach((x) => url.searchParams.append(k, x));
+  const r = await fetch(url, {headers: {Authorization: 'Bearer ' + token}});
+  if (r.status === 401) { token = null; throw new Error('Your Google sign-in expired. Tap Refresh to sign in again.'); }
+  if (!r.ok) throw new Error(`Gmail returned ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return r.json();
+}
+async function listThreads(q, max) {
+  const out = []; let pageToken;
+  do {
+    const r = await gmail('threads', {q, maxResults: 100, ...(pageToken ? {pageToken} : {})});
+    out.push(...(r.threads || []));
+    pageToken = r.nextPageToken;
+  } while (pageToken && out.length < max);
+  return out.slice(0, max);
+}
+const decode = (s) => { const t = document.createElement('textarea'); t.innerHTML = s || ''; return t.value.replace(/[\u034f\ufeff\u200c\u00ad]/g, '').replace(/\s+/g, ' ').trim(); };
+const header = (m, name) => ((m.payload?.headers || []).find((h) => h.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
+const parseFrom = (s) => { const m = s.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>/); return m ? {name: m[1].trim(), email: m[2].toLowerCase()} : {name: '', email: s.trim().toLowerCase()}; };
+
+async function loadThreads(q, max, cacheKey) {
+  const cache = store.get(cacheKey, {});
+  const list = await listThreads(q, max);
+  const need = list.filter((t) => !cache[t.id] || cache[t.id].historyId !== t.historyId);
+  let done = 0;
+  const work = async () => {
+    while (need.length) {
+      const t = need.shift();
+      const th = await gmail('threads/' + t.id, {format: 'metadata', metadataHeaders: ['Subject', 'From', 'To']});
+      cache[t.id] = {
+        historyId: t.historyId,
+        msgs: (th.messages || []).map((m) => { const f = parseFrom(header(m, 'From')); return {ms: Number(m.internalDate), from: f.email, name: f.name, to: parseFrom(header(m, 'To')).email, subject: decode(header(m, 'Subject')), snippet: decode(m.snippet)}; }),
+      };
+      $('sync').textContent = `Reading emails… ${++done}`;
+    }
+  };
+  await Promise.all(Array.from({length: 6}, work));
+  const keep = {}; list.forEach((t) => { if (cache[t.id]) keep[t.id] = cache[t.id]; });
+  store.set(cacheKey, keep);
+  return list.map((t) => ({id: t.id, ...keep[t.id]})).filter((t) => t.msgs && t.msgs.length);
+}
+
+/* ===== Classify applications ===== */
+const RANK = {Applied: 1, Assessment: 2, Interview: 3, Rejected: 4, Offer: 5};
+const SKIP = /newsletter|edition|talent network|jobs you may be interested|is hiring|placement services|interview story|thank-you email|employee reviews|upload your photo|advice for|explore opportunities|found a job at/;
+const KEEP = /appl(y|ied|ying|ication)|candidacy|requisition|position|role|pre-? ?screen/;
+const NOISE = new Set(['mail', 'send', 'email', 'msg', 'notifications', 'notification', 'candidates', 'vssend', 'myworkday', 'nurture', 'icims', 'smartrecruiters', 'ashbyhq', 'successfactors', 'clearcompany', 'applicantemails', 'paycomonline', 'workablemail', 'gmail', 'med', 's', 'usa']);
+const statusOf = (t) =>
+  /offer letter|pleased to offer|offer of employment|extend (you )?an offer/.test(t) ? 'Offer'
+  : /regret to inform|unfortunately|not (be )?moving (you )?forward|move forward with (another|other)|not been selected|haven't been selected|has (now )?been filled|no longer hiring|been canceled|position closed|doesn't offer visa sponsorship/.test(t) ? 'Rejected'
+  : /invite you to (an? )?interview|schedule (an? |your )?(interview|call)|interview (invitation|request|with)|pre-? ?screen|phone screen/.test(t) ? 'Interview'
+  : /assessment|coding challenge|hackerrank|codesignal|take-home/.test(t) ? 'Assessment'
+  : 'Applied';
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+let myEmail = '';
+function companyOf(m, t) {
+  const self = m.from === myEmail;
+  const addr = self ? m.to : m.from;
+  const [local, dom = ''] = addr.split('@');
+  let n = self ? '' : m.name.replace(/^.* from /i, '').replace(/^(myworkday|workday\.do-not-reply)\s+/i, '').replace(/\s+(talent acquisition( team)?|hiring team|talent team|careers)$/i, '').trim();
+  if (/myworkday\.com$/.test(dom) && (!n || /workday/i.test(n))) n = cap(local);
+  if (!n || /^(workable|human resources|indeed apply)$/i.test(n)) {
+    const x = t.match(/(?:applying (?:to|with)|interest in|application to|employment at) ([A-Z][\w&.'-]*(?: [A-Z][\w&.'-]*){0,4})/);
+    const labels = dom.split('.').slice(0, -1).filter((l) => !NOISE.has(l));
+    n = x ? x[1] : cap(labels[labels.length - 1] || 'Unknown');
+  }
+  return n;
+}
+const reqOf = (t) => (t.match(/\b(R-?\d{4}-\d+|R\d{6,}|REQ\d+|\d{5,7})\b/i) || [])[1] || '';
+function roleOf(t) {
+  const ps = [/role of (.+?) - \d/i, /Application Received for (.+)/i, /(?:for|in) the (?:position of )?(.+?) (?:role|position|job|opening|opportunity)\b/i, /position of (?:\d+ )?(.+?)\s*[.(]/i, /application for (?:the )?(.+?) (?:job|position|was|is)\b/i, /interest in (?:our position, )?(.+?) - R?\d/i];
+  for (const p of ps) { const x = t.match(p); if (x && x[1].length < 80) return x[1].replace(/\s*[-,]\s*R?\d+$/i, '').trim(); }
+  return '';
+}
+function buildApplications(threads) {
+  const groups = new Map();
+  for (const th of threads) {
+    const first = th.msgs[0], last = th.msgs[th.msgs.length - 1];
+    const firstOther = th.msgs.find((m) => m.from !== myEmail) || first;
+    const all = th.msgs.map((m) => m.subject + ' ' + m.snippet).join(' ');
+    const lt = all.toLowerCase();
+    if (SKIP.test(lt) || !KEEP.test(lt)) continue;
+    const t0 = first.subject + ' ' + first.snippet;
+    const company = companyOf(firstOther, t0);
+    const req = reqOf(all);
+    const key = company.toLowerCase().replace(/[^a-z0-9]/g, '') + (req ? '#' + req.toUpperCase() : '');
+    const g = groups.get(key) || {key, company, role: '', subj: first.subject, status: 'Applied', rank: 0, appliedMs: first.ms, updatedMs: last.ms, link: ''};
+    for (const m of th.msgs) { const s = statusOf((m.subject + ' ' + m.snippet).toLowerCase()); if (RANK[s] > g.rank) { g.status = s; g.rank = RANK[s]; } }
+    if (first.ms < g.appliedMs) { g.appliedMs = first.ms; g.subj = first.subject; }
+    if (last.ms >= g.updatedMs) { g.updatedMs = last.ms; g.link = `https://mail.google.com/mail/u/0/#all/${th.id}`; }
+    if (!g.link) g.link = `https://mail.google.com/mail/u/0/#all/${th.id}`;
+    g.role = g.role || roleOf(all);
+    groups.set(key, g);
+  }
+  return [...groups.values()].map((g) => ({...g, role: g.role || g.subj, applied: ymd(g.appliedMs), updated: ymd(g.updatedMs)})).sort((a, b) => b.updatedMs - a.updatedMs);
+}
+function buildLeads(threads) {
+  const SK = /looking for a new job|employee reviews|your application|thanks for applying/i;
+  return threads.map((th) => {
+    const m = th.msgs[th.msgs.length - 1];
+    if (SK.test(m.subject) || m.from === myEmail) return null;
+    const s = m.subject; let company = '', role = s, x;
+    if ((x = s.match(/^(.+?) is hiring(?: for| a| an|:)?\s*(.*)$/i))) { company = x[1]; role = x[2]; }
+    else if ((x = s.match(/^(?:Aleena, )?(.+?) (?:has an open position|may want to hire you)/i))) { company = x[1]; role = ''; }
+    else if ((x = s.match(/^(?:You may be a fit for )?(.+?) (?:job |opening )?at (.+?)(?::| - | and \d+ more|$)/i))) { role = x[1]; company = x[2]; }
+    else if ((x = m.snippet.match(/job at ([^.!]+)/i))) { company = x[1]; role = ''; }
+    role = role.replace(/\.?\s*(Apply Now\.?|[A-Z][a-z]+ \d{1,2}, \d{4})$/, '').replace(/^(now\.?|remote)$/i, '').trim();
+    if (!role) role = m.snippet.replace(company, '').replace(/ role and more.*$/i, '').replace(/^[:\s]+/, '').slice(0, 90).trim();
+    return {id: th.id, date: ymd(m.ms), ms: m.ms, company: company.trim(), role, source: (m.name || m.from.split('@')[1] || '').replace(/\s+(job alerts|jobs)$/i, '').replace(/^phil @ /i, ''), link: `https://mail.google.com/mail/u/0/#all/${th.id}`};
+  }).filter(Boolean).sort((a, b) => b.ms - a.ms);
+}
+
+/* ===== Render ===== */
+const inRange = (d) => (!ui.from || d >= ui.from) && (!ui.to || d <= ui.to);
+const matchQ = (...xs) => !ui.q || xs.join(' ').toLowerCase().includes(ui.q.toLowerCase());
+function el(tag, props = {}, ...kids) { const e = document.createElement(tag); Object.assign(e, props); e.append(...kids); return e; }
+const linkTd = (href) => el('td', {}, el('a', {href, target: '_blank', rel: 'noopener', textContent: 'Open'}));
+
+function render() {
+  const inDates = applications.filter((a) => inRange(a.applied));
+  const counts = {All: inDates.length};
+  for (const s of Object.keys(RANK)) counts[s] = inDates.filter((a) => a.status === s).length;
+  const tiles = [['', 'All', 'Applications', ''], ['Applied', 'Applied', 'Waiting to hear', ''], ['Assessment', 'Assessment', 'Assessment', 'warn'], ['Interview', 'Interview', 'Interview', 'warn'], ['Offer', 'Offer', 'Offer', 'ok'], ['Rejected', 'Rejected', 'Rejected', 'bad']];
+  $('tiles').replaceChildren(...tiles.map(([st, k, label, cls]) => {
+    const b = el('button', {className: 'tile ' + cls}, el('div', {className: 'l', textContent: label}), el('div', {className: 'n', textContent: counts[k]}));
+    b.setAttribute('aria-pressed', String(ui.status === st));
+    b.onclick = () => { ui.status = st; render(); };
+    return b;
+  }));
+
+  const rows = inDates.filter((a) => (!ui.status || a.status === ui.status) && matchQ(a.company, a.role));
+  $('appRows').replaceChildren(...(rows.length ? rows.map((a) => el('tr', {},
+    el('td', {textContent: a.company}), el('td', {textContent: a.role}),
+    el('td', {}, el('span', {className: 'st st-' + a.status, textContent: a.status === 'Applied' ? 'Waiting' : a.status})),
+    el('td', {className: 'hide-sm', textContent: nice(a.applied)}), el('td', {textContent: nice(a.updated)}), linkTd(a.link)))
+    : [el('tr', {}, el('td', {colSpan: 6, className: 'empty', textContent: applications.length ? 'No applications in these dates. Pick a wider range or tap All.' : 'No application emails found yet.'}))]));
+
+  const lr = leads.filter((l) => inRange(l.date) && matchQ(l.company, l.role, l.source));
+  $('leadRows').replaceChildren(...(lr.length ? lr.map((l) => el('tr', {},
+    el('td', {textContent: nice(l.date)}), el('td', {textContent: l.company}), el('td', {textContent: l.role}),
+    el('td', {className: 'hide-sm', textContent: l.source}), linkTd(l.link)))
+    : [el('tr', {}, el('td', {colSpan: 5, className: 'empty', textContent: 'No job leads in these dates.'}))]));
+
+  const t = today();
+  const todays = applications.filter((a) => a.applied === t);
+  $('todayCount').textContent = todays.length;
+  $('todayDate').textContent = new Date().toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric'}) + ` · ${todays.length} application${todays.length === 1 ? '' : 's'} sent`;
+  $('todayList').replaceChildren(...(todays.length ? todays.map((a) => el('li', {}, el('b', {textContent: a.company}), el('span', {className: 'muted', textContent: a.role})))
+    : [el('li', {className: 'muted', textContent: 'Nothing yet today. Confirmation emails show up here as they arrive.'})]));
+  $('stamp').hidden = false;
+}
+
+/* ===== Controls ===== */
+function setPreset(p) {
+  ui.to = p === 'all' ? '' : today();
+  ui.from = p === 'all' ? '' : p === 'today' ? today() : daysAgo(Number(p) - 1);
+  $('from').value = ui.from; $('to').value = ui.to;
+  document.querySelectorAll('[data-preset]').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.preset === p)));
+  render();
+}
+document.querySelectorAll('[data-preset]').forEach((c) => c.onclick = () => setPreset(c.dataset.preset));
+['from', 'to'].forEach((id) => $(id).onchange = () => {
+  ui[id] = $(id).value;
+  document.querySelectorAll('[data-preset]').forEach((c) => c.setAttribute('aria-pressed', 'false'));
+  render();
+});
+$('q').oninput = () => { ui.q = $('q').value; render(); };
+document.querySelectorAll('.tab').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t === b)));
+  $('apps').hidden = b.dataset.tab !== 'apps'; $('leads').hidden = b.dataset.tab !== 'leads';
+});
+const side = (open) => { $('side').classList.toggle('open', open); $('stamp').setAttribute('aria-expanded', String(open)); };
+$('stamp').onclick = () => side(!$('side').classList.contains('open'));
+$('closeSide').onclick = () => side(false);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') side(false); });
+
+/* ===== Sync ===== */
+async function sync() {
+  $('error').hidden = true;
+  try {
+    $('sync').textContent = 'Checking your inbox…';
+    myEmail = (await gmail('profile')).emailAddress.toLowerCase();
+    const [a, l] = await Promise.all([loadThreads(APPS_QUERY, MAX_APPS, 'jt-apps'), loadThreads(LEADS_QUERY, MAX_LEADS, 'jt-leads')]);
+    applications = buildApplications(a); leads = buildLeads(l);
+    store.set('jt-snapshot', {applications, leads, myEmail, at: Date.now()});
+    $('sync').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+    render();
+  } catch (e) {
+    $('error').textContent = e.message; $('error').hidden = false; $('sync').textContent = '';
+  }
+}
+function signIn(prompt) {
+  if (!tokenClient) return;
+  tokenClient.callback = (r) => {
+    if (r.error) { $('error').textContent = 'Google sign-in failed: ' + r.error; $('error').hidden = false; return; }
+    token = r.access_token; store.set('jt-signed-in', true);
+    $('signin').hidden = true; $('app').hidden = false; $('refresh').hidden = false; $('signout').hidden = false;
+    sync();
+  };
+  tokenClient.requestAccessToken({prompt});
+}
+$('connect').onclick = () => signIn('consent');
+$('refresh').onclick = () => (token ? sync() : signIn(''));
+$('signout').onclick = () => {
+  if (token) google.accounts.oauth2.revoke(token, () => {});
+  token = null; localStorage.clear(); location.reload();
+};
+
+window.addEventListener('load', () => {
+  const snap = store.get('jt-snapshot', null);
+  if (snap) { // show last results instantly, even offline
+    applications = snap.applications; leads = snap.leads; myEmail = snap.myEmail;
+    $('signin').hidden = true; $('app').hidden = false; $('refresh').hidden = false; $('signout').hidden = false;
+    $('sync').textContent = 'Last updated ' + new Date(snap.at).toLocaleString([], {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) + ' · tap Refresh for new emails';
+    render();
+  }
+  const init = () => {
+    if (!window.google?.accounts?.oauth2) return setTimeout(init, 200);
+    tokenClient = google.accounts.oauth2.initTokenClient({client_id: CLIENT_ID, scope: SCOPE, callback: () => {}});
+    if (store.get('jt-signed-in', false) && navigator.onLine) signIn('');
+  };
+  init();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+});
+</script>
+</body>
+</html>
