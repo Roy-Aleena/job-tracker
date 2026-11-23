@@ -156,7 +156,7 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
-const VERSION = '1.4';
+const VERSION = '1.5';
 /* ===== Dates (local time) ===== */
 const ymd = (ms) => { const d = new Date(Number(ms)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const today = () => ymd(Date.now());
@@ -259,20 +259,22 @@ function companyOf(m) {
   const [local, dom = ''] = addr.split('@');
   let n = self ? '' : m.name.replace(/^.* from /i, '').replace(/^(myworkday|workday\.do-not-reply)\s+/i, '').replace(/\s+(talent acquisition( team)?|hiring team|talent team|recruiting( team)?|careers|jobs)$/i, '').trim();
   if (n && GENERIC.test(n)) n = '';
-  if (/myworkday\.com$/.test(dom) && (!n || /workday/i.test(n))) n = cap(local);
-  if (!n) n = textCompany(m.subject) || textCompany(m.snippet);
+  const KNOWN = {att: 'AT&T', hpe: 'Hewlett Packard Enterprise', ibm: 'IBM', tmobile: 'T-Mobile', homedepot: 'The Home Depot', paypal: 'PayPal'};
+  if (/myworkday\.com$/.test(dom) && (!n || /workday/i.test(n))) n = KNOWN[local.toLowerCase()] || cap(local);
+  if (!n) n = textCompany(m.subject);
   if (!n && !PLATFORM_DOM.test(dom)) {
     const labels = dom.split('.').slice(0, -1).filter((l) => !NOISE.has(l) && !/^(us|eu|mail|send|hire|ats|careers?|jobs|recruiting|no-?reply)$/.test(l));
-    n = cap(labels[labels.length - 1] || '');
+    n = KNOWN[labels[labels.length - 1]] || cap(labels[labels.length - 1] || '');
   }
+  if (!n) n = textCompany(m.snippet);
   return n || 'Unknown';
 }
-const reqOf = (t) => (t.match(/\b(R-?\d{4}-\d+|R\d{6,}|REQ\d+|\d{5,7})\b/i) || [])[1] || '';
+const reqOf = (t) => (t.match(/\b(JR\d{5,}|R-?\d{4}-\d+|R-?\d{5,}|REQ\d+|\d{5,8})\b/i) || [])[1] || '';
 function roleOf(subj, t) {
   const sp = [/applying to [^-–|]+? [-–] (.+)$/i, /application for (?!the |a |an )[^-–|]+? [-–] (.+)$/i];
   for (const p of sp) { const x = subj.match(p); if (x && x[1].length < 80) return x[1].trim(); }
-  const ps = [/role of (.+?) - \d/i, /Application Received for (.+?)(?: \||$)/i, /position of (?:\d+ )?(.+?)\s*[.(]/i, /(?:for|in) the (?:position of )?(.+?) (?:role|position|job|opening|opportunity)\b/i, /application for (?:the )?(.+?) (?:job|position|was|is)\b/i, /interest in (?:our position, )?(.+?) - R?\d/i];
-  for (const p of ps) { const x = t.match(p); if (x && x[1].length < 80 && !/^(a|an|the|this|your|our|a new)$/i.test(x[1].trim())) return x[1].replace(/\s*[-,]\s*R?\d+$/i, '').trim(); }
+  const ps = [/Position:\s*(.+?)\s+(?:Job (?:Number|ID)|Req|Location|Application Date)\b/i, /(?:for|to) the position:? (.+?)(?: - \d| \(\d|\s+\.(?:\s|$)|\.\s)/i, /Application Received\s*[-–:]\s*(?:R-?\d+\s+)?(.+?)(?: \||$)/i, /Update on .+?['’]s (.+?) Role\b/i, /interest in (.+?) \((?:ID|Job ID|Req)/i, /role of (.+?) - \d/i, /Application Received for (.+?)(?: \||$)/i, /position of (?:\d+ )?(.+?)\s*[.(]/i, /(?:for|in) the (?:position of )?(.+?) (?:role|position|job|opening|opportunity)\b/i, /application for (?:the )?(.+?) (?:job|position|was|is)\b/i, /interest in (?:our position, )?(.+?) - R?\d/i];
+  for (const p of ps) { const x = t.match(p); if (x && x[1].length < 90 && !/^(a|an|the|this|your|our|a new|following|position)$/i.test(x[1].trim())) return x[1].replace(/^(our|the|your|a|an)\s+/i, '').replace(/\s*[-,]\s*R?\d+$/i, '').trim(); }
   return '';
 }
 const FREE_MAIL = /^(gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|icloud|me|aol|proton|protonmail|pm|gmx|zoho|rediffmail)\./i;
@@ -316,22 +318,27 @@ function buildApplications(threads, sentThreads = []) {
     if (!m.sent && !linked && (SKIP.test(lt) || !KEEP.test(lt))) continue;
     const company = m.sent ? sentCompany(m) : companyOf(m), ck = norm(company);
     const req = reqOf(t), role = m.sent ? sentRole(m, t) : roleOf(m.subject, t), s = m.sent ? 'Applied' : statusOf(lt);
-    const keys = [role && ck + '@' + norm(role), req && ck + '#' + req.toUpperCase()].filter(Boolean);
+    const roleKey = role && ck + '@' + norm(role), reqKey = req && ck + '#' + req.toUpperCase();
+    const keys = [reqKey, roleKey].filter(Boolean);
     const last = groups.get(latestByCompany.get(ck));
-    let key = linked || keys.map((k) => alias.get(k)).find(Boolean);
+    const byRole = roleKey && alias.get(roleKey), roleGroup = byRole && groups.get(byRole);
+    // same job number = same application; same title only if the job numbers don't differ
+    let key = linked || (reqKey && alias.get(reqKey)) || (roleGroup && (!req || !roleGroup.req || roleGroup.req === req) ? byRole : null);
     if (!key) {
-      if (last && (!keys.length || !last.role) && m.ms - last.updatedMs < NEAR) key = last.key; // follow-up email moments later
-      else if (s !== 'Applied' && last && (!keys.length || !last.role)) key = last.key;        // status update for an untitled application
+      const fits = last && (!keys.length || (!last.role && !last.req && !req)); // nothing that says it's a different job
+      if (fits && m.ms - last.updatedMs < NEAR) key = last.key;  // follow-up email moments later
+      else if (s !== 'Applied' && fits) key = last.key;        // status update for an untitled application
       else key = keys[0] || ck + '~' + (m.id || m.tid);                                        // a new application
     }
     const link = `https://mail.google.com/mail/u/0/#all/${m.id || m.tid}`;
     let g = groups.get(key);
     if (m.sent) byThread.set(m.tid, key);
-    if (!g) { g = {key, company, role: role || '', subj: m.subject, status: 'Applied', rank: 0, appliedMs: m.ms, updatedMs: m.ms, link, fresh: s === 'Applied', via: m.sent ? 'email' : ''}; groups.set(key, g); }
+    if (!g) { g = {key, company, role: role || '', subj: m.subject, status: 'Applied', rank: 0, appliedMs: m.ms, updatedMs: m.ms, link, fresh: s === 'Applied', via: m.sent ? 'email' : '', req}; groups.set(key, g); }
     keys.forEach((k) => alias.set(k, key));
     if (RANK[s] > g.rank) { g.status = s; g.rank = RANK[s]; }
     if (m.ms >= g.updatedMs) { g.updatedMs = m.ms; g.link = link; }
     if (!g.role && role && !linked) g.role = role;
+    if (!g.req && req) g.req = req;
     if (!linked) latestByCompany.set(ck, key);
   }
   return [...groups.values()].map((g) => ({...g, role: g.role || g.subj, applied: ymd(g.appliedMs), updated: ymd(g.updatedMs)})).sort((a, b) => b.updatedMs - a.updatedMs);
@@ -468,7 +475,7 @@ window.addEventListener('load', () => {
     render();
   }
   if (CLIENT_ID.startsWith('PASTE')) {
-    CLIENT_ID = store.get('jt-client-id', '') || (prompt('One-time setup: paste your Google Client ID (ends in .apps.googleusercontent.com)') || '').trim();
+    CLIENT_ID = store.get('jt-client-id', '') || (prompt('One-time setup: paste your Google Client ID.\n\nFind it at console.cloud.google.com > your Job Tracker project > Google Auth Platform > Clients > click your client > copy the Client ID (ends in .apps.googleusercontent.com, not the Client secret).') || '').trim();
     if (CLIENT_ID) store.set('jt-client-id', CLIENT_ID);
   }
   const init = () => {
