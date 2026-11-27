@@ -140,11 +140,11 @@ td a{color:inherit}
 /* ===== Settings ===== */
 let CLIENT_ID = 'PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com'; // or leave as is: the app asks once and remembers it
 const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
-const APPS_QUERY = 'newer_than:6m -category:promotions -from:(indeedapply@indeed.com OR nurture.icims.com OR openai.com OR gofordesi.com OR jobalerts-noreply@linkedin.com OR glassdoor.com) (subject:(applying OR "your application" OR "application received" OR "application status" OR "received your application" OR "interest in" OR "interested in" OR interview OR "pre-screen" OR assessment OR "offer letter" OR requisition OR "position closed" OR "position filled") OR from:(myworkday.com OR ashbyhq.com OR smartrecruiters.com OR greenhouse.io OR lever.co OR workablemail.com OR successfactors.com OR icims.com OR clearcompany.com OR silkroad.com OR applicantemails.com OR talent@ibm.com))';
+const APPS_QUERY = 'newer_than:6m -category:promotions -category:social -from:(indeedapply@indeed.com OR jobalert.indeed.com OR nurture.icims.com OR openai.com OR gofordesi.com OR chavaramatrimony.in OR catholicmatch.com OR jobalerts-noreply@linkedin.com OR jobs-noreply@linkedin.com OR glassdoor.com OR ziprecruiter.com) (subject:(application OR applying OR applied OR candidacy OR "your interest" OR "interest in" OR interview OR assessment OR "offer letter" OR requisition OR "position closed" OR "position filled" OR "status update" OR "next steps" OR "thanks for considering" OR "thank you for considering") OR from:(recruiting OR recruitment OR careers OR talent OR hiring OR myworkday.com OR ashbyhq.com OR smartrecruiters.com OR greenhouse.io OR greenhouse-mail.io OR lever.co OR workablemail.com OR successfactors.com OR icims.com OR clearcompany.com OR silkroad.com OR applicantemails.com OR jobvite.com OR taleo.net OR adp.com OR paycomonline.com OR rippling.com OR dover.com OR amazon.jobs OR talent@ibm.com))';
 const LEADS_QUERY = 'newer_than:30d -from:me (from:(jobalerts-noreply@linkedin.com OR jobs-noreply@linkedin.com OR alert@indeed.com OR jobalert@indeed.com OR noreply@glassdoor.com OR ziprecruiter.com OR dice.com OR wellfound.com OR joinhandshake.com) OR subject:("we\'re hiring" OR "now hiring" OR "is hiring" OR "open position" OR "open role" OR "job opportunity" OR "paid project")) -subject:("employee reviews" OR applying OR "your application" OR "looking for a new job")';
 const SENT_WORDS_QUERY = 'in:sent newer_than:6m subject:(application OR applying OR apply OR resume OR cv OR candidate OR position OR role)';
 const SENT_ATTACH_QUERY = 'in:sent newer_than:6m has:attachment {filename:pdf filename:doc filename:docx}';
-const MAX_APPS = 1000, MAX_LEADS = 150, MAX_SENT = 300;
+const MAX_APPS = 2500, MAX_LEADS = 150, MAX_SENT = 300;
 
 /* ===== State ===== */
 let token = null, tokenClient = null;
@@ -156,7 +156,8 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
-const VERSION = '1.5';
+const VERSION = '1.6';
+['jt-apps', 'jt-apps2', 'jt-sent', 'jt-sent-att', 'jt-leads'].forEach((k) => { try { localStorage.removeItem(k); } catch {} });
 /* ===== Dates (local time) ===== */
 const ymd = (ms) => { const d = new Date(Number(ms)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const today = () => ymd(Date.now());
@@ -194,7 +195,15 @@ const decode = (s) => { const t = document.createElement('textarea'); t.innerHTM
 const header = (m, name) => ((m.payload?.headers || []).find((h) => h.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
 const parseFrom = (s) => { const m = s.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>/); return m ? {name: m[1].trim(), email: m[2].toLowerCase()} : {name: '', email: s.trim().toLowerCase()}; };
 
-async function loadThreads(q, max, cacheKey) {
+const b64 = (s) => { const t = s.replace(/-/g, '+').replace(/_/g, '/'); try { return decodeURIComponent(escape(atob(t))); } catch { try { return atob(t); } catch { return ''; } } };
+function bodyText(p) {
+  let plain = '', html = '';
+  const walk = (x) => { if (!x) return; if (x.mimeType === 'text/plain' && x.body?.data && !plain) plain = b64(x.body.data); else if (x.mimeType === 'text/html' && x.body?.data && !html) html = b64(x.body.data); (x.parts || []).forEach(walk); };
+  walk(p);
+  const t = plain || html.replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>/gi, ' ').replace(/<[^>]+>/g, ' ');
+  return decode(t.replace(/https?:\/\/\S+/g, ' ').slice(0, 3000)).slice(0, 400);
+}
+async function loadThreads(q, max, cacheKey, withBody = false) {
   const cache = store.get(cacheKey, {});
   const list = await listThreads(q, max);
   const need = list.filter((t) => !cache[t.id] || cache[t.id].historyId !== t.historyId);
@@ -202,10 +211,10 @@ async function loadThreads(q, max, cacheKey) {
   const work = async () => {
     while (need.length) {
       const t = need.shift();
-      const th = await gmail('threads/' + t.id, {format: 'metadata', metadataHeaders: ['Subject', 'From', 'To']});
+      const th = await gmail('threads/' + t.id, withBody ? {format: 'full'} : {format: 'metadata', metadataHeaders: ['Subject', 'From', 'To']});
       cache[t.id] = {
         historyId: t.historyId,
-        msgs: (th.messages || []).map((m) => { const f = parseFrom(header(m, 'From')); return {id: m.id, ms: Number(m.internalDate), from: f.email, name: f.name, to: parseFrom(header(m, 'To')).email, toName: parseFrom(header(m, 'To')).name, subject: decode(header(m, 'Subject')), snippet: decode(m.snippet)}; }),
+        msgs: (th.messages || []).map((m) => { const f = parseFrom(header(m, 'From')); return {id: m.id, ms: Number(m.internalDate), from: f.email, name: f.name, to: parseFrom(header(m, 'To')).email, toName: parseFrom(header(m, 'To')).name, subject: decode(header(m, 'Subject')), snippet: decode(m.snippet), body: withBody && f.email !== myEmail ? bodyText(m.payload) : ''}; }),
       };
       $('sync').textContent = `Reading emails… ${++done}`;
       if (done % 20 === 0) store.set(cacheKey, cache); // save progress so a retry picks up where it stopped
@@ -220,19 +229,30 @@ async function loadThreads(q, max, cacheKey) {
 
 /* ===== Classify applications ===== */
 const RANK = {Applied: 1, Assessment: 2, Interview: 3, Rejected: 4, Offer: 5};
-const SKIP = /newsletter|edition|talent network|jobs you may be interested|is hiring|placement services|interview story|thank-you email|employee reviews|upload your photo|advice for|explore opportunities|found a job at|security code|verification code|verify your email|password reset|reset your password/;
-const KEEP = /appl(y|ied|ying|ication)|candidacy|requisition|position|role|pre-? ?screen/;
+const SKIP = /newsletter|edition|talent network|jobs you may be interested|is hiring|placement services|interview story|thank-you email|employee reviews|upload your photo|advice for|explore opportunities|found a job at|security code|verification code|verify your email|password reset|reset your password|jobs? match your search|jobs you might|recommended jobs|new jobs for you|job alert|interview tips|webinar|newsletter|confirm your identity|sign-?in link|application is incomplete|not fully completed|finish your application|complete your application|a task awaits you/;
+const KEEP = /appl(y|ied|ying|ication)|candidacy|requisition|position|role|pre-? ?screen|interview|assessment|interest in|considering|career opportunit|offer letter/;
 const NOISE = new Set(['mail', 'send', 'email', 'msg', 'notifications', 'notification', 'candidates', 'vssend', 'myworkday', 'nurture', 'icims', 'smartrecruiters', 'ashbyhq', 'successfactors', 'clearcompany', 'applicantemails', 'paycomonline', 'workablemail', 'gmail', 'med', 's', 'usa']);
-const statusOf = (t) =>
-  /offer letter|pleased to offer|offer of employment|extend (you )?an offer/.test(t) ? 'Offer'
-  : /regret to inform|unfortunately|not (be )?moving (you )?forward|move forward with (another|other)|not been selected|haven't been selected|has (now )?been filled|no longer hiring|been canceled|position closed|doesn't offer visa sponsorship/.test(t) ? 'Rejected'
-  : /invite you to (an? )?interview|schedule (an? |your )?(interview|call)|interview (invitation|request|with)|pre-? ?screen|phone screen/.test(t) ? 'Interview'
-  : /assessment|coding challenge|hackerrank|codesignal|take-home/.test(t) ? 'Assessment'
-  : 'Applied';
+const statusOf = (t, subj = '') => {
+  const s = subj.toLowerCase();
+  if (/offer letter|pleased to offer|offer of employment|extend (you )?an offer|offer to join/.test(t)) return 'Offer';
+  if (/regret to inform|not (be )?moving (you )?forward|not to move forward|not to proceed|decided not to proceed|will not be proceeding|move forward with (another|other)|moving forward with (another|other)|pursue other candidates|decided to pursue|other candidates whose|candidates whose (experience|background|qualifications)|more closely (match|align)|not been selected|haven't been selected|were not selected|not selected for|no longer under consideration|not be considered further|has (now )?been filled|have filled|position (has been )?(filled|closed)|no longer hiring|been cancell?ed|unable to offer you|not able to offer you|doesn't offer visa sponsorship|not a (fit|match) at this time|not progress(ing)? (your|with your) application/.test(t)) return 'Rejected';
+  if (/unfortunately/.test(t) && !/not able to (respond|reach out|reply)|unable to (respond|reply|reach out)|can(no|')t (respond|reply)|due to (the )?(high |large )?(volume|number)/.test(t)) return 'Rejected';
+  const confirm = /thank(s| you) for (applying|your application)|received your application|application received|successfully submitted|application (was )?submitted/.test(s);
+  if (!confirm && /interview|next steps|invitation|schedule/.test(s) && /interview|call|chat|screen|meet/.test(t)) return 'Interview';
+  if (/invite you to (an? )?(interview|call|phone screen|video)|would like to (schedule|invite you|set up|speak|talk)|please (select|book|choose|pick) a (time|slot)|calendly\.com|share your availability|your availability (for|this)/.test(t)) return 'Interview';
+  if (!confirm && /assessment|challenge|hackerrank|codesignal|codility|online test|skills test/.test(s)) return 'Assessment';
+  if (/invite(d)? you to (complete|take)|please complete (the|an|your) (online |technical )?(assessment|test|challenge)|hackerrank\.com|codesignal\.com|codility\.com|link to (your|the) assessment/.test(t)) return 'Assessment';
+  return 'Applied';
+};
+const cleanRole = (r) => {
+  let x = (r || '').trim(), prev;
+  do { prev = x; x = x.replace(/^(of|for|the|our|your|a|an|position|role|job)\s+/i, '').replace(/^[#\[(]?(?:JR|REQ|R)?-?\d{4,}[\])]?\s*[-–:]?\s*/i, '').trim(); } while (x !== prev);
+  return x.replace(/\s*[-–,]\s*(?:JR|REQ|R)?-?\d{4,}\)?$/i, '').replace(/\s+\.$/, '').trim();
+};
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 let myEmail = '';
 const GENERIC = /^(workable|human resources|hr|indeed( apply)?|hr ?system|recruiting( team)?|recruitment|talent acquisition|talent|careers?|no-?reply|do-?not-?reply|jobs?|hiring|y combinator|work at a startup|linkedin|dover|rippling|ashby|greenhouse|lever|wellfound|smartrecruiters|workday|icims|paycom|jobvite|bamboohr|notifications?)$/i;
-const PLATFORM_DOM = /(ycombinator|workable|dover|rippling|ashbyhq|greenhouse|lever\.co|linkedin|indeed|smartrecruiters|icims|myworkday|successfactors|paycomonline|clearcompany|silkroad|applicantemails|jobvite|bamboohr|gmail|outlook|yahoo|stripe\.com)/i;
+const PLATFORM_DOM = /(adp\.com|ycombinator|workable|dover|rippling|ashbyhq|greenhouse|lever\.co|linkedin|indeed|smartrecruiters|icims|myworkday|successfactors|paycomonline|clearcompany|silkroad|applicantemails|jobvite|bamboohr|gmail|outlook|yahoo|stripe\.com)/i;
 const WORD = "[A-Z0-9][\\w&'’]*(?:\\.[\\w&'’]+)*";
 const NAME = `(${WORD}(?: (?:${WORD}|of|and|&))*)`;
 const CO_PATTERNS = [
@@ -243,6 +263,7 @@ const CO_PATTERNS = [
   new RegExp(`application for (?!the |a |an )${NAME} [-–] `),
   /at \[([^\]]+)\]/,
   new RegExp(`^${NAME} has received your application`),
+  new RegExp(`Update\\s*[-–]\\s*${NAME}$`),
   new RegExp(`\\| ${NAME}$`),
   new RegExp(`(?:position|role|opening|job|opportunity) (?:at|with) ${NAME}`),
 ];
@@ -257,10 +278,11 @@ function companyOf(m) {
   const self = m.from === myEmail;
   const addr = self ? m.to : m.from;
   const [local, dom = ''] = addr.split('@');
-  let n = self ? '' : m.name.replace(/^.* from /i, '').replace(/^(myworkday|workday\.do-not-reply)\s+/i, '').replace(/\s+(talent acquisition( team)?|hiring team|talent team|recruiting( team)?|careers|jobs)$/i, '').trim();
+  let n = self ? '' : m.name.replace(/^.* (?:from|at) /i, '').replace(/^(myworkday|workday\.do-not-reply)\s+/i, '').replace(/\s+(talent acquisition( team)?|hiring team|talent team|recruiting( team)?|careers|jobs)$/i, '').trim();
   if (n && GENERIC.test(n)) n = '';
-  const KNOWN = {att: 'AT&T', hpe: 'Hewlett Packard Enterprise', ibm: 'IBM', tmobile: 'T-Mobile', homedepot: 'The Home Depot', paypal: 'PayPal'};
-  if (/myworkday\.com$/.test(dom) && (!n || /workday/i.test(n))) n = KNOWN[local.toLowerCase()] || cap(local);
+  const KNOWN = {ghr: 'Bank of America', fmr: 'Fidelity', dell: 'Dell', att: 'AT&T', hpe: 'Hewlett Packard Enterprise', ibm: 'IBM', tmobile: 'T-Mobile', homedepot: 'The Home Depot', paypal: 'PayPal'};
+  if (n && n === n.toLowerCase()) n = KNOWN[n] || cap(n);
+  if (/myworkday\.com$/.test(dom) && (!n || /workday/i.test(n))) n = textCompany(m.subject) || KNOWN[local.toLowerCase()] || cap(local);
   if (!n) n = textCompany(m.subject);
   if (!n && !PLATFORM_DOM.test(dom)) {
     const labels = dom.split('.').slice(0, -1).filter((l) => !NOISE.has(l) && !/^(us|eu|mail|send|hire|ats|careers?|jobs|recruiting|no-?reply)$/.test(l));
@@ -271,10 +293,10 @@ function companyOf(m) {
 }
 const reqOf = (t) => (t.match(/\b(JR\d{5,}|R-?\d{4}-\d+|R-?\d{5,}|REQ\d+|\d{5,8})\b/i) || [])[1] || '';
 function roleOf(subj, t) {
-  const sp = [/applying to [^-–|]+? [-–] (.+)$/i, /application for (?!the |a |an )[^-–|]+? [-–] (.+)$/i];
-  for (const p of sp) { const x = subj.match(p); if (x && x[1].length < 80) return x[1].trim(); }
+  const sp = [/^(?:JR|REQ|R)?\d{4,}\s+(.+?)\s+[-–]\s+Thanks for your interest/i, /\((.+?)\s*[-–]\s*(?:JR|REQ|R)?\d{4,}\)\s*$/i, /application for (?:the )?(.+?)\s*[-–]\s*(?:JR|REQ|R)?-?\d{4,}\)?$/i, /applying to [^-–|]+? [-–] (.+)$/i, /application for (?!the |a |an )[^-–|]+? [-–] (.+)$/i];
+  for (const p of sp) { const x = subj.match(p); if (x && x[1].length < 80 && !/^[\d\s#-]+$/.test(x[1])) return cleanRole(x[1]); }
   const ps = [/Position:\s*(.+?)\s+(?:Job (?:Number|ID)|Req|Location|Application Date)\b/i, /(?:for|to) the position:? (.+?)(?: - \d| \(\d|\s+\.(?:\s|$)|\.\s)/i, /Application Received\s*[-–:]\s*(?:R-?\d+\s+)?(.+?)(?: \||$)/i, /Update on .+?['’]s (.+?) Role\b/i, /interest in (.+?) \((?:ID|Job ID|Req)/i, /role of (.+?) - \d/i, /Application Received for (.+?)(?: \||$)/i, /position of (?:\d+ )?(.+?)\s*[.(]/i, /(?:for|in) the (?:position of )?(.+?) (?:role|position|job|opening|opportunity)\b/i, /application for (?:the )?(.+?) (?:job|position|was|is)\b/i, /interest in (?:our position, )?(.+?) - R?\d/i];
-  for (const p of ps) { const x = t.match(p); if (x && x[1].length < 90 && !/^(a|an|the|this|your|our|a new|following|position)$/i.test(x[1].trim())) return x[1].replace(/^(our|the|your|a|an)\s+/i, '').replace(/\s*[-,]\s*R?\d+$/i, '').trim(); }
+  for (const p of ps) { const x = t.match(p); if (x && x[1].length < 90 && !/^(a|an|the|this|your|our|a new|following|position)$/i.test(x[1].trim())) return cleanRole(x[1]); }
   return '';
 }
 const FREE_MAIL = /^(gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|icloud|me|aol|proton|protonmail|pm|gmx|zoho|rediffmail)\./i;
@@ -297,7 +319,7 @@ function sentCompany(m) {
   const at = m.subject.match(new RegExp(` at ${NAME}\\s*$`));
   return textCompany(m.subject) || (at && at[1]) || textCompany(m.snippet) || m.toName || m.to;
 }
-const sentRole = (m, t) => roleOf(m.subject, t) || ((t.match(/(?:position|role|opening) (?:of|for) (?:the )?([A-Z][^.,;|]{2,60}?)(?:\s+(?:at|with|position|role)\b|[.,;|]|$)/) || [])[1] || '').trim() || m.subject.replace(/^\s*(job )?application( for| -|:)?\s*/i, '').replace(/^\s*applying (for|to) (the )?/i, '').replace(/\s*[-–|]\s*(resume|cv).*$/i, '').trim();
+const sentRole = (m, t) => roleOf(m.subject, t) || roleOf('', m.body || '') || ((t.match(/(?:position|role|opening) (?:of|for) (?:the )?([A-Z][^.,;|]{2,60}?)(?:\s+(?:at|with|position|role)\b|[.,;|]|$)/) || [])[1] || '').trim() || m.subject.replace(/^\s*(job )?application( for| -|:)?\s*/i, '').replace(/^\s*applying (for|to) (the )?/i, '').replace(/\s*[-–|]\s*(resume|cv).*$/i, '').trim();
 function buildApplications(threads, sentThreads = []) {
   // Each email counts on its own: Gmail can stack several applications (same subject) into one thread.
   const groups = new Map(), alias = new Map(), latestByCompany = new Map();
@@ -317,7 +339,8 @@ function buildApplications(threads, sentThreads = []) {
     const linked = !m.sent && byThread.get(m.tid);
     if (!m.sent && !linked && (SKIP.test(lt) || !KEEP.test(lt))) continue;
     const company = m.sent ? sentCompany(m) : companyOf(m), ck = norm(company);
-    const req = reqOf(t), role = m.sent ? sentRole(m, t) : roleOf(m.subject, t), s = m.sent ? 'Applied' : statusOf(lt);
+    const full = (t + ' | ' + (m.body || '')).toLowerCase();
+    const req = reqOf(t), role = m.sent ? sentRole(m, t) : (roleOf(m.subject, t) || roleOf('', m.body || '')), s = m.sent ? 'Applied' : statusOf(full, m.subject);
     const roleKey = role && ck + '@' + norm(role), reqKey = req && ck + '#' + req.toUpperCase();
     const keys = [reqKey, roleKey].filter(Boolean);
     const last = groups.get(latestByCompany.get(ck));
@@ -429,7 +452,7 @@ async function sync() {
   try {
     $('sync').textContent = 'Checking your inbox…';
     myEmail = (await gmail('profile')).emailAddress.toLowerCase(); store.set('jt-email', myEmail);
-    const [a, l, sw, sa] = await Promise.all([loadThreads(APPS_QUERY, MAX_APPS, 'jt-apps2'), loadThreads(LEADS_QUERY, MAX_LEADS, 'jt-leads2'), loadThreads(SENT_WORDS_QUERY, MAX_SENT, 'jt-sent'), loadThreads(SENT_ATTACH_QUERY, MAX_SENT, 'jt-sent-att')]);
+    const [a, l, sw, sa] = await Promise.all([loadThreads(APPS_QUERY, MAX_APPS, 'jt-apps3', true), loadThreads(LEADS_QUERY, MAX_LEADS, 'jt-leads2'), loadThreads(SENT_WORDS_QUERY, MAX_SENT, 'jt-sent2', true), loadThreads(SENT_ATTACH_QUERY, MAX_SENT, 'jt-sent-att2', true)]);
     const att = new Set(sa.map((t) => t.id)), sent = [...sa, ...sw.filter((t) => !att.has(t.id))].map((t) => ({...t, att: att.has(t.id)}));
     applications = buildApplications(a, sent); leads = buildLeads(l);
     store.set('jt-snapshot', {applications, leads, myEmail, at: Date.now()});
